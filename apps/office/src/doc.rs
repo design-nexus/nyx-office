@@ -840,6 +840,9 @@ pub fn restore(r: Recovery) {
                 discard(&r);
                 opened(r.path.clone(), &r.title, true);
                 window::toast("Restored your unsaved work. Save it to keep it.");
+                if let Some(p) = r.path.clone() {
+                    check_fidelity(p);
+                }
             }
             Err(e) => window::toast(&format!("Couldn't restore that work: {e:#}")),
         }
