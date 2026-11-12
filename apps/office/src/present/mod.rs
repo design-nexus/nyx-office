@@ -2116,6 +2116,12 @@ pub fn write_sample(path: &Path) {
     std::fs::write(path, bytes).expect("written");
 }
 
+/// A .pptx read and written again, as saving it in place does (crate::fidelity).
+pub(crate) fn pptx_round_trip(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let (deck, media) = pptx::read(bytes)?;
+    Ok(pptx::write(&deck, &media)?.0)
+}
+
 /// Reads a PowerPoint or OpenDocument presentation and draws each slide, for the corpus check.
 #[cfg(test)]
 pub fn corpus_read(bytes: &[u8], odp_file: bool) -> anyhow::Result<String> {

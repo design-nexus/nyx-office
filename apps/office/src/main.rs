@@ -6,6 +6,7 @@ mod cmd;
 mod color;
 mod container;
 mod doc;
+mod fidelity;
 mod fmt;
 mod home;
 mod odf;

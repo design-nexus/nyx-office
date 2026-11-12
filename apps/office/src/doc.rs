@@ -154,6 +154,9 @@ struct State {
     warned: HashSet<String>,
     /// Shown in the top bar until the file is saved ("Untitled", a template's name).
     untitled: String,
+    /// What saving the open file in place would lose (crate::fidelity); None while
+    /// that's being worked out.
+    unkept: Option<Vec<String>>,
 }
 
 type Listener = Rc<dyn Fn(Change)>;
@@ -232,7 +235,8 @@ thread_local! {
 }
 
 fn autosaving() -> bool {
-    prefs::get().autosave && path().is_some()
+    // A file that saving would lose content from waits to be saved on purpose.
+    prefs::get().autosave && path().is_some() && STATE.with(|s| s.borrow().unkept.as_ref().is_some_and(Vec::is_empty))
 }
 
 /// With autosave on, save a moment after the changes stop.
@@ -267,6 +271,7 @@ fn opened(path: Option<PathBuf>, untitled: &str, dirty: bool) {
         s.dirty = dirty;
         s.warned.clear();
         s.untitled = untitled.to_string();
+        s.unkept = Some(Vec::new());
     });
     clear_recovery();
     emit(Change::Opened);
@@ -399,10 +404,110 @@ pub fn open(path: PathBuf) {
     guard(move || match ed.open(&path) {
         Ok(()) => {
             recent::record(&path);
-            opened(Some(path), "", false);
+            opened(Some(path.clone()), "", false);
+            check_fidelity(path);
         }
         Err(e) => window::toast(&format!("Couldn't open {}: {e:#}", file_name(&path))),
     });
+}
+
+/// Works out in the background what saving `path` in place would lose, and says so.
+fn check_fidelity(path: PathBuf) {
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    if !["docx", "xlsx", "pptx"].contains(&ext.as_str()) {
+        return;
+    }
+    STATE.with(|s| s.borrow_mut().unkept = None);
+    glib::spawn_future_local(async move {
+        let p = path.clone();
+        let lost = gio::spawn_blocking(move || crate::fidelity::unkept_in(&p)).await.unwrap_or_default();
+        if self::path().as_deref() != Some(path.as_path()) {
+            return;
+        }
+        STATE.with(|s| s.borrow_mut().unkept = Some(lost.clone()));
+        if !lost.is_empty() {
+            window::toast(&format!(
+                "{} has {} that {} can't keep. Saving it here would remove them; Save As keeps the original.",
+                file_name(&path),
+                join_and(&lost),
+                app::kind().name()
+            ));
+        }
+    });
+}
+
+/// What saving to `path` would lose: something only when it's the open file and it has
+/// content this app can't keep (worked out now if the check hasn't finished).
+fn unkept_at(path: &Path) -> Vec<String> {
+    if self::path().as_deref() != Some(path) {
+        return Vec::new();
+    }
+    if let Some(known) = STATE.with(|s| s.borrow().unkept.clone()) {
+        return known;
+    }
+    let lost = crate::fidelity::unkept_in(path);
+    STATE.with(|s| s.borrow_mut().unkept = Some(lost.clone()));
+    lost
+}
+
+/// Save to `path`, first asking when that would lose content the file has.
+fn write_checked(path: PathBuf, then: Box<dyn FnOnce()>) {
+    let lost = unkept_at(&path);
+    if lost.is_empty() {
+        if write_to(&path) {
+            then();
+        }
+        return;
+    }
+    let kind = app::kind();
+    let (dialog, card) = widgets::dialog(&format!("Save over “{}”?", file_name(&path)), 460);
+    let d = widgets::label(
+        &format!(
+            "{} can't keep this file's {}. Saving it here removes them from the file. Save a copy to keep the original as it is.",
+            kind.name(),
+            join_and(&lost)
+        ),
+        "dim",
+    );
+    d.set_wrap(true);
+    card.append(&d);
+    let buttons = widgets::hbox(8);
+    buttons.set_halign(gtk::Align::End);
+    buttons.set_margin_top(6);
+    let cancel = gtk::Button::with_label("Cancel");
+    let replace = gtk::Button::with_label("Replace anyway");
+    replace.add_css_class("destructive-action");
+    let copy = gtk::Button::with_label("Save a copy…");
+    copy.add_css_class("suggested-action");
+    buttons.append(&cancel);
+    buttons.append(&replace);
+    buttons.append(&copy);
+    card.append(&buttons);
+    let then: Then = Rc::new(RefCell::new(Some(then)));
+    let dl = dialog.clone();
+    cancel.connect_clicked(move |_| dl.close());
+    let (dl, t, p) = (dialog.clone(), then.clone(), path);
+    replace.connect_clicked(move |_| {
+        dl.close();
+        STATE.with(|s| s.borrow_mut().unkept = Some(Vec::new()));
+        if write_to(&p)
+            && let Some(f) = t.borrow_mut().take()
+        {
+            f();
+        }
+    });
+    let dl = dialog.clone();
+    copy.connect_clicked(move |_| {
+        dl.close();
+        let t = then.clone();
+        save_as_then(move || {
+            if let Some(f) = t.borrow_mut().take() {
+                f();
+            }
+        });
+    });
+    dialog.present();
+    copy.grab_focus();
 }
 
 fn list_exts(exts: &[&str]) -> String {
@@ -464,11 +569,7 @@ pub fn save() {
 /// Save to the current file (asking for a name the first time), then run `then`.
 fn save_then(then: impl FnOnce() + 'static) {
     match path() {
-        Some(p) => {
-            if write_to(&p) {
-                then();
-            }
-        }
+        Some(p) => write_checked(p, Box::new(then)),
         None => save_as_then(then),
     }
 }
@@ -508,9 +609,7 @@ fn save_as_then(then: impl FnOnce() + 'static) {
             .map(|e| e.to_string_lossy().to_lowercase())
             .is_some_and(|e| kind.save_formats().iter().any(|(_, x)| *x == e));
         if known {
-            if write_to(&p) {
-                then();
-            }
+            write_checked(p, Box::new(then));
             return;
         }
         let name = format!("{}.{}", file_name(&p), kind.native_ext());
@@ -526,6 +625,16 @@ fn save_as_then(then: impl FnOnce() + 'static) {
 
 /// Save to `path` now, without a dialog (the control interface). True when it worked.
 pub fn save_to(path: &Path) -> bool {
+    let lost = unkept_at(path);
+    if !lost.is_empty() {
+        window::toast(&format!(
+            "Not saved: {} can't keep {}'s {}. Save it as a copy instead.",
+            app::kind().name(),
+            file_name(path),
+            join_and(&lost)
+        ));
+        return false;
+    }
     write_to(path)
 }
 
@@ -555,6 +664,8 @@ fn save_file(path: &Path, quiet: bool) -> bool {
                 s.dirty = false;
                 if changed_path {
                     s.warned.clear();
+                    // A file this app wrote: nothing in it that it can't keep.
+                    s.unkept = Some(Vec::new());
                 }
                 s.warned.insert(ext.clone())
             });

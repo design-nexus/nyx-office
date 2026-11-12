@@ -2229,6 +2229,12 @@ pub fn write_sample(path: &Path) {
     std::fs::write(path, bytes).expect("written");
 }
 
+/// A .docx read and written again, as saving it in place does (crate::fidelity).
+pub(crate) fn docx_round_trip(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let (d, media) = docx::read(bytes)?;
+    Ok(docx::write(&d, &media)?.0)
+}
+
 /// Reads a Word or OpenDocument text file, for the corpus check: a short summary.
 #[cfg(test)]
 pub fn corpus_read(bytes: &[u8], odt_file: bool) -> anyhow::Result<String> {

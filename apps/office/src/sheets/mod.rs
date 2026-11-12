@@ -1963,6 +1963,13 @@ pub fn write_sample(path: &Path) {
     std::fs::write(path, bytes).expect("written");
 }
 
+/// An .xlsx read and written again, as saving it in place does (crate::fidelity).
+pub(crate) fn xlsx_round_trip(bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
+    let wb = xlsx::read(bytes)?.workbook;
+    let calc = Calc::new(&wb, 0.0);
+    Ok(xlsx::write(&wb, &calc)?.0)
+}
+
 /// Reads an Excel or OpenDocument spreadsheet and works it out, for the corpus check.
 #[cfg(test)]
 pub fn corpus_read(bytes: &[u8], ods_file: bool) -> anyhow::Result<String> {
