@@ -1,7 +1,7 @@
 //! Settings as a card over the window: the groups listed on the left, the
 //! chosen group's options on the right, and a search across all of them.
 
-use crate::{app, doc, prefs, widgets, window};
+use crate::{doc, prefs, widgets, window};
 use gtk::prelude::*;
 use nyx_ui::settings_card::{self, About, Spec, Standard};
 
@@ -21,25 +21,16 @@ fn shortcuts() -> &'static [doc::Shortcut] {
 }
 
 fn spec() -> Spec {
-    let kind = app::kind();
     Spec {
         groups: GROUPS,
         search_text: None,
         standard: Some(Standard {
-            app: kind.id(),
+            app: "office",
             about: About {
-                name: kind.full_name(),
-                icon: match kind {
-                    app::Kind::Write => "io.github.design_nexus.nyx.Write",
-                    app::Kind::Sheets => "io.github.design_nexus.nyx.Sheets",
-                    app::Kind::Present => "io.github.design_nexus.nyx.Present",
-                },
+                name: "Office",
+                icon: crate::app::APP_ID,
                 version: env!("CARGO_PKG_VERSION"),
-                description: match kind {
-                    app::Kind::Write => "Documents, from letters to reports.",
-                    app::Kind::Sheets => "Spreadsheets with formulas and charts.",
-                    app::Kind::Present => "Slides, presented on any screen.",
-                },
+                description: "Documents, spreadsheets and slides in one window, each file in a tab of its own.",
                 licence: "MIT",
                 website: "https://github.com/design-nexus/nyx-office",
                 issues: "https://github.com/design-nexus/nyx-office/issues",

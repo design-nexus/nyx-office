@@ -23,7 +23,7 @@ mod summary;
 mod templates;
 mod xlsx;
 
-use crate::doc::{self, Find, Template};
+use crate::doc::{self, Find};
 use crate::print::Pages;
 use crate::{color, container, widgets, window};
 use anyhow::{Result, bail};
@@ -111,6 +111,8 @@ struct ChartPane {
 
 pub struct Sheets {
     me: RefCell<Weak<Sheets>>,
+    /// The tab it was built for (None outside the window, as in the checks).
+    tab: Option<crate::app::Tab>,
     root: gtk::Box,
     wb: RefCell<Workbook>,
     calc: RefCell<Calc>,
@@ -156,20 +158,22 @@ pub struct Sheets {
 }
 
 thread_local! {
-    static SHEETS: RefCell<Option<Rc<Sheets>>> = const { RefCell::new(None) };
+    /// Every spreadsheet editor, one per tab.
+    static ALL: RefCell<Vec<Weak<Sheets>>> = const { RefCell::new(Vec::new()) };
 }
 
 pub(crate) fn close_chart_pane() {
-    SHEETS.with(|s| {
-        if let Some(s) = s.borrow().as_ref()
-        {
-            s.chart.pane.set_visible(false);
-            let chart = s.controls.borrow().as_ref().map(|controls| controls.chart.clone());
-            if let Some(chart) = chart {
-                chart.set_active(false);
-            }
-        }
+    let all: Vec<Rc<Sheets>> = ALL.with(|a| {
+        a.borrow_mut().retain(|s| s.strong_count() > 0);
+        a.borrow().iter().filter_map(Weak::upgrade).collect()
     });
+    for s in all {
+        s.chart.pane.set_visible(false);
+        let chart = s.controls.borrow().as_ref().map(|controls| controls.chart.clone());
+        if let Some(chart) = chart {
+            chart.set_active(false);
+        }
+    }
 }
 
 /// Now as a date number (TODAY takes the whole days, NOW the time as well).
@@ -218,6 +222,7 @@ impl Sheets {
 
         let s = Rc::new(Sheets {
             me: RefCell::new(Weak::new()),
+            tab: crate::app::tab(),
             root: widgets::vbox(0),
             wb: RefCell::new(wb),
             calc: RefCell::new(calc),
@@ -265,7 +270,7 @@ impl Sheets {
         s.root.append(&s.build_tabs());
         s.relayout();
         s.refresh_sheets();
-        SHEETS.with(|x| *x.borrow_mut() = Some(s.clone()));
+        ALL.with(|x| x.borrow_mut().push(Rc::downgrade(&s)));
         s
     }
 
@@ -1013,6 +1018,21 @@ impl Sheets {
         });
         self.tab_scroll.add_controller(wheel);
         bar.append(&self.tab_scroll);
+        // The selection's sum, average and count.
+        let readout = widgets::label("", "sheet-readout");
+        readout.set_ellipsize(gtk::pango::EllipsizeMode::Start);
+        readout.set_margin_start(12);
+        readout.set_margin_end(10);
+        bar.append(&readout);
+        let me = self.weak();
+        let l = readout.clone();
+        doc::subscribe(&readout, move |c| {
+            if c == doc::Change::Status
+                && let Some(s) = me.upgrade()
+            {
+                l.set_text(&s.selection_stats());
+            }
+        });
         bar
     }
 
@@ -1292,7 +1312,7 @@ impl Sheets {
         self.chart.area.queue_draw();
         self.sync();
         if edited {
-            doc::edited();
+            doc::edited_by(self.tab);
         } else {
             doc::status_changed();
         }
@@ -1731,13 +1751,38 @@ fn replace_in(text: &str, query: &str, with: &str, case: bool) -> String {
     out
 }
 
+pub use templates::TEMPLATES;
+
+/// A spreadsheet's own shortcuts, for the F1 list.
+pub const SHORTCUTS: &[doc::Shortcut] = &[
+    (&["Enter"], "Keep the entry and move down (Shift: up)"),
+    (&["Tab"], "Keep the entry and move right (Shift: left)"),
+    (&["F2"], "Edit the cell (or double-click it)"),
+    (&["Esc"], "Cancel the entry"),
+    (&["Shift", "Arrows"], "Select cells"),
+    (&["Ctrl", "Arrows"], "Jump to the edge of the data"),
+    (&["Ctrl", "A"], "Select the whole sheet"),
+    (&["Delete"], "Clear the selected cells"),
+    (&["Ctrl", "C"], "Copy (Ctrl+X cuts, then paste moves)"),
+    (&["Drag", "Edge"], "Drag the selection by its edge to move it (hold Ctrl to copy)"),
+    (&["Ctrl", "V"], "Paste; a larger selection repeats the copy"),
+    (&["Ctrl", "Shift", "V"], "Paste values only (right-click for formatting only)"),
+    (&["Ctrl", "+"], "Insert rows above (columns, when whole columns are selected)"),
+    (&["Ctrl", "−"], "Delete the selected rows (or whole columns)"),
+    (&["Right-click"], "Cut, copy, paste, insert, delete, hide or show rows and columns"),
+    (&["Ctrl", "9"], "Hide the selected rows (Ctrl+Shift+9 shows them)"),
+    (&["Ctrl", "0"], "Hide the selected columns (Ctrl+Shift+0 shows them)"),
+    (&["Ctrl", "D"], "Fill down"),
+    (&["Ctrl", "R"], "Fill right"),
+    (&["Ctrl", "B"], "Bold"),
+    (&["Ctrl", "I"], "Italic"),
+    (&["Ctrl", "PgDn"], "Next sheet (PgUp: the one before)"),
+    (&["Ctrl", "Alt", "M"], "Comment on the cell"),
+];
+
 impl doc::Editor for Sheets {
     fn widget(&self) -> gtk::Widget {
         self.root.clone().upcast()
-    }
-
-    fn templates(&self) -> &'static [Template] {
-        templates::TEMPLATES
     }
 
     fn new_document(&self, template: Option<&str>) {
@@ -1769,7 +1814,7 @@ impl doc::Editor for Sheets {
                         crate::fmt::thousands(ROWS as usize)
                     ));
                 } else if opened.dropped_rules {
-                    window::toast("Some conditional formats use rules Sheets doesn't have; they were left out.");
+                    window::toast("Some conditional formats use rules Office doesn't have; they were left out.");
                 } else if opened.pivots > 0 {
                     window::toast(&format!(
                         "{} now a summary that updates with its data.",
@@ -1778,7 +1823,7 @@ impl doc::Editor for Sheets {
                 }
                 opened.workbook
             }
-            _ => bail!("Sheets opens .nsheets, .xlsx, .ods and .csv files"),
+            _ => bail!("Office opens spreadsheets from .nsheets, .xlsx, .ods and .csv files"),
         };
         let chart = wb.sheet().chart.is_some();
         self.load(wb);
@@ -1817,7 +1862,7 @@ impl doc::Editor for Sheets {
                 crate::cmd::atomic_write(path, bytes)?;
                 Ok(lost)
             }
-            _ => bail!("Sheets saves .nsheets, .xlsx, .ods and .csv files"),
+            _ => bail!("Office saves spreadsheets as .nsheets, .xlsx, .ods and .csv files"),
         }
     }
 
@@ -1852,6 +1897,10 @@ impl doc::Editor for Sheets {
         self.selection_stats()
     }
 
+    fn own_readout(&self) -> bool {
+        true
+    }
+
     fn find(&self) -> Option<Rc<dyn Find>> {
         Some(self.rc())
     }
@@ -1871,34 +1920,6 @@ impl doc::Editor for Sheets {
         if !self.editing.get() {
             self.area.grab_focus();
         }
-    }
-
-    fn shortcuts(&self) -> &'static [doc::Shortcut] {
-        &[
-            (&["Enter"], "Keep the entry and move down (Shift: up)"),
-            (&["Tab"], "Keep the entry and move right (Shift: left)"),
-            (&["F2"], "Edit the cell (or double-click it)"),
-            (&["Esc"], "Cancel the entry"),
-            (&["Shift", "Arrows"], "Select cells"),
-            (&["Ctrl", "Arrows"], "Jump to the edge of the data"),
-            (&["Ctrl", "A"], "Select the whole sheet"),
-            (&["Delete"], "Clear the selected cells"),
-            (&["Ctrl", "C"], "Copy (Ctrl+X cuts, then paste moves)"),
-            (&["Drag", "Edge"], "Drag the selection by its edge to move it (hold Ctrl to copy)"),
-            (&["Ctrl", "V"], "Paste; a larger selection repeats the copy"),
-            (&["Ctrl", "Shift", "V"], "Paste values only (right-click for formatting only)"),
-            (&["Ctrl", "+"], "Insert rows above (columns, when whole columns are selected)"),
-            (&["Ctrl", "−"], "Delete the selected rows (or whole columns)"),
-            (&["Right-click"], "Cut, copy, paste, insert, delete, hide or show rows and columns"),
-            (&["Ctrl", "9"], "Hide the selected rows (Ctrl+Shift+9 shows them)"),
-            (&["Ctrl", "0"], "Hide the selected columns (Ctrl+Shift+0 shows them)"),
-            (&["Ctrl", "D"], "Fill down"),
-            (&["Ctrl", "R"], "Fill right"),
-            (&["Ctrl", "B"], "Bold"),
-            (&["Ctrl", "I"], "Italic"),
-            (&["Ctrl", "PgDn"], "Next sheet (PgUp: the one before)"),
-            (&["Ctrl", "Alt", "M"], "Comment on the cell"),
-        ]
     }
 
     fn key(&self, key: gdk::Key, mods: gdk::ModifierType) -> bool {

@@ -33,7 +33,7 @@ for a in "${apps[@]}"; do
     settings) bins="nyx-settings nyx-settings-helper nyx-goa-helper" ids="Settings" ;;
     store) bins="nyx-store" ids="Store" ;;
     media-player) bins="nyx-media-player" ids="MediaPlayer" ;;
-    office) bins="nyx-office nyx-write nyx-sheets nyx-present" ids="Write Sheets Present" ;;
+    office) bins="nyx-office nyx-write nyx-sheets nyx-present" ids="Write Sheets Present Office" ;;
     photos) bins="nyx-photos nyx-viewer" ids="Photos PhotoViewer" ;;
     pdf) bins="nyx-pdf" ids="Pdf" ;;
     news) bins="nyx-news nyx-news-glimpse" ids="News" ;;
@@ -85,6 +85,7 @@ for a in "${apps[@]}"; do
     rm -rf "${config:?}/${slug:?}" "${share:?}/${slug:?}" "${XDG_STATE_HOME:-$HOME/.local/state}/${slug:?}"
   fi
 done
+update-desktop-database "$share/applications" 2>/dev/null || true
 
 # Floating-window rules for apps that are gone.
 hypr="$config/hypr/nyx.lua"

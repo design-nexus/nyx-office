@@ -7,18 +7,21 @@ pub const TEMPLATES: &[Template] = &[
     Template {
         id: "monthly-budget",
         title: "Monthly budget",
+        short: "Budget",
         summary: "Planned and actual spending by category.",
         icon: "nxo-piggy-bank-symbolic",
     },
     Template {
         id: "home-inventory",
         title: "Home inventory",
+        short: "Inventory",
         summary: "Belongings by room, with their value.",
         icon: "nxo-package-symbolic",
     },
     Template {
         id: "trip-budget",
         title: "Trip budget",
+        short: "Trip",
         summary: "What a trip costs and what's left.",
         icon: "nxo-plane-symbolic",
     },

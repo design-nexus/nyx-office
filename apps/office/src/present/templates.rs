@@ -7,16 +7,18 @@ pub const TEMPLATES: &[Template] = &[
     Template {
         id: "trip-plan",
         title: "Trip plan",
+        short: "Trip plan",
         summary: "Where you're going and what you'll do.",
         icon: "nxo-plane-symbolic",
     },
     Template {
         id: "celebration",
         title: "Celebration",
+        short: "Celebration",
         summary: "A party, a birthday or a toast.",
         icon: "nxo-party-popper-symbolic",
     },
-    Template { id: "story", title: "Story", summary: "Tell a story in a few slides.", icon: "nxo-book-open-symbolic" },
+    Template { id: "story", title: "Story", short: "Story", summary: "Tell a story in a few slides.", icon: "nxo-book-open-symbolic" },
 ];
 
 fn slide(layout: Layout, title: &str, body: &str, notes: &str, bg: &str, fg: &str) -> Slide {

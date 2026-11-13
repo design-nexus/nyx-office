@@ -979,6 +979,7 @@ dependencies = [
  "cairo-rs",
  "gtk4",
  "libspelling",
+ "nyx-actions",
  "nyx-core",
  "nyx-theme",
  "nyx-ui",

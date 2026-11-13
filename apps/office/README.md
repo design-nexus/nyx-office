@@ -1,14 +1,20 @@
 # Office Suite
 
-Three home office apps for [Omarchy](https://omarchy.org): **Write** for
-documents, **Sheets** for spreadsheets and **Present** for slides. They
-open and save Word, Excel and PowerPoint files and their OpenDocument counterparts,
+**Office**, one home office app for [Omarchy](https://omarchy.org): documents,
+spreadsheets and slides open side by side as tabs like a browser's, as many of each
+as you like, each kind in its own colour. They open and save Word, Excel and PowerPoint files and their OpenDocument counterparts,
 export PDF and print. The window takes its colors from your Omarchy theme and fits a
 half-screen tile; the page itself keeps its own colors, so what you see is what prints.
 
 ## What they do
 
-Every app starts on **Home**: a blank file, starter templates, and your recent files.
+Office starts on **Home**: a new document, spreadsheet or presentation (blank or from
+a template), and your recent files of every kind, with a filter for the kind; the
+sidebar lists your files by kind and every template together. Office is one entry in
+the app launcher. Each file opens in a tab of its own, any number of documents,
+spreadsheets and presentations at once (opening one that's already open brings its tab
+forward); <kbd>Ctrl</kbd>+<kbd>Tab</kbd> moves between tabs and <kbd>Ctrl</kbd>+<kbd>W</kbd>
+closes one, asking first if it has unsaved changes.
 In a file, the bar at the top holds what you use most, as icons (bold, alignment,
 lists, a picture, a table, a new slide), and the **Inspector** at the right holds all
 the formatting for what's selected, in labelled sections (<kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>I</kbd> shows and hides it). Then:
@@ -189,9 +195,10 @@ curl -fsSL https://raw.githubusercontent.com/design-nexus/nyx-office/main/instal
 ```
 
 This installs GTK 4, GtkSourceView 5, libspelling and an English dictionary if they're
-missing, builds with Cargo, and installs `nyx-write`, `nyx-sheets` and
-`nyx-present` to `~/.local/bin` with launcher entries. Add `-s -- --default` after
-`bash` to also make them the default apps for their file types.
+missing, builds with Cargo, and installs `nyx-office` (and `nyx-write`, `nyx-sheets`
+and `nyx-present`, which open the same window) to `~/.local/bin` with an Office
+launcher entry. Add `-s -- --default` after `bash` to also make Office the default
+app for its file types.
 
 To remove them, run the same line with `uninstall.sh` in place of `install.sh`. Add
 `-s -- --purge` to also remove their settings, recent file lists and copies of unsaved
@@ -200,18 +207,18 @@ work. Your documents are never touched.
 ## Usage
 
 ```
-nyx-write [OPTIONS] [FILE]
-nyx-sheets [OPTIONS] [FILE]
-nyx-present [OPTIONS] [FILE]
+nyx-office [OPTIONS] [FILE…]
+nyx-write [OPTIONS] [FILE…]     (also nyx-sheets, nyx-present)
 ```
 
 | Option | What |
 | --- | --- |
-| `FILE` | Open this file |
+| `FILE…` | Open these files, each in a tab of its own |
 | `--new [TEMPLATE]` | Start a blank file, or one from a template (`letter`, `recipe`, `journal`, `monthly-budget`, `home-inventory`, `trip-budget`, `trip-plan`, `celebration`, `story`) |
 | `--export-pdf OUT` | Export `FILE` as a PDF to `OUT` and quit, without opening a window |
 
-Launching an app again while it's running brings its window forward.
+Launching Office again while it's running brings its window forward, with any files
+given in new tabs.
 
 | Key | What |
 | --- | --- |

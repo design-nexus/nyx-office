@@ -1221,7 +1221,7 @@ impl Sheets {
                     self.undo.borrow_mut().pop();
                 } else {
                     self.redo.borrow_mut().clear();
-                    crate::doc::edited();
+                    crate::doc::edited_by(self.tab);
                 }
             }
             Drag::MoveCells { .. } => {

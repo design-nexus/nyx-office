@@ -310,10 +310,406 @@ window.office-window button.dialog-nav.active {
   padding: 20px 20px 28px;
 }
 
-/* ---------- Home ---------- */
+/* ---------- One window: the file in the header, the tabs ---------- */
 
-.content-page {
-  /* Content pages stay readable on wide windows. */
+.key-hint {
+  color: @theme_text_tertiary;
+  font-size: 0.846em;
+}
+
+.header-doc {
+  margin-left: 4px;
+}
+
+.header-doc-sep {
+  color: @theme_text_tertiary;
+}
+
+.header-doc-name {
+  font-weight: 600;
+}
+
+.unsaved-dot {
+  min-width: 7px;
+  min-height: 7px;
+  border-radius: 999px;
+  background: @theme_warning;
+}
+
+window.office-window .app-header button.new-button,
+window.office-window .app-header button.header-export {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: @field;
+  box-shadow: inset 0 0 0 1px @hairline;
+  font-weight: 600;
+}
+
+window.office-window .app-header button.new-button:hover,
+window.office-window .app-header button.header-export:hover {
+  background: mix(@field, @theme_text, 0.06);
+}
+
+window.office-window .app-header button.header-open {
+  min-height: 30px;
+  padding: 0 8px;
+  color: @theme_dim_text;
+  font-weight: 500;
+}
+
+window.office-window .app-header button.header-open:hover {
+  background: @row_hover;
+  color: @theme_text;
+}
+
+.dd-chev {
+  -gtk-icon-size: 12px;
+  color: @theme_text_tertiary;
+}
+
+.office-tabs {
+  min-height: 34px;
+  padding: 4px 8px 0;
+}
+
+.office-tab {
+  margin: 0 0 4px;
+  padding: 0 4px 0 0;
+  border-radius: var(--nyx-radius-small);
+}
+
+.office-tab:hover {
+  background: alpha(@row_hover, 0.6);
+}
+
+.office-tab.active {
+  background: @field;
+  box-shadow: inset 0 0 0 1px @hairline;
+}
+
+window.office-window .office-tab button.office-tab-main {
+  min-height: 28px;
+  padding: 0 6px 0 10px;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: @theme_dim_text;
+  font-weight: 500;
+}
+
+window.office-window .office-tab.active button.office-tab-main {
+  color: @theme_text;
+}
+
+.office-tab image,
+.recent-item .kind-icon {
+  -gtk-icon-size: 14px;
+}
+
+window.office-window .office-tab button.office-tab-close {
+  min-width: 20px;
+  min-height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+  color: @theme_dim_text;
+  opacity: 0;
+}
+
+window.office-window .office-tab button.office-tab-close image {
+  -gtk-icon-size: 12px;
+}
+
+window.office-window .office-tab:hover button.office-tab-close,
+window.office-window .office-tab.active:not(.dirty) button.office-tab-close {
+  opacity: 1;
+}
+
+window.office-window .office-tab button.office-tab-close:hover {
+  background: @row_hover;
+  color: @theme_text;
+}
+
+.office-tab:hover .office-tab-dot {
+  opacity: 0;
+}
+
+window.office-window button.office-tab-new {
+  min-width: 26px;
+  min-height: 26px;
+  margin: 0 0 4px 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: @theme_dim_text;
+}
+
+window.office-window button.office-tab-new:hover {
+  background: @row_hover;
+  color: @theme_text;
+}
+
+/* The pane line under the tabs reaches the sheet's edges. */
+.office-tabs + separator.pane-line {
+  margin: 0;
+}
+
+.office-pages {
+  margin: 8px;
+}
+
+/* ---------- Sidebar: kinds, templates, the foot ---------- */
+
+window.office-window .settings-navigation button.nav-item image.kind-nav-icon {
+  color: inherit;
+}
+
+/* The icon rail's mark where a group starts: a short bar in its colour. */
+.settings-navigation separator.nav-divider {
+  margin: 8px 14px 6px;
+  min-height: 2px;
+  border-radius: 1px;
+  background: @theme_divider;
+}
+
+.nav-foot {
+  margin: 6px 10px 4px;
+  color: @theme_text_tertiary;
+  font-size: 0.846em;
+}
+
+.nav-foot .foot-ok {
+  -gtk-icon-size: 12px;
+  color: @theme_success;
+}
+
+/* ---------- Home, Recent and Templates ---------- */
+
+.office-home {
+  padding: 24px 28px 28px;
+}
+
+.office-home.narrow {
+  padding: 18px 18px 24px;
+}
+
+.home-head {
+  margin: 26px 0 10px;
+}
+
+.home-head.first {
+  margin-top: 0;
+}
+
+.home-title {
+  font-size: 1.077em;
+  font-weight: 600;
+}
+
+.home-head .kind-icon {
+  -gtk-icon-size: 16px;
+}
+
+.home-banners {
+  margin-bottom: 26px;
+}
+
+.recover-banner {
+  padding: 12px 14px;
+  border-radius: var(--nyx-radius-card);
+  background: @theme_card;
+  box-shadow: inset 0 0 0 1px @hairline;
+}
+
+.recover-icon {
+  -gtk-icon-size: 16px;
+  color: @theme_accent;
+}
+
+.recover-title {
+  font-weight: 600;
+}
+
+.recover-detail {
+  color: @theme_dim_text;
+  font-size: 0.923em;
+}
+
+.new-card {
+  padding: 14px;
+  border-radius: var(--nyx-radius-card);
+  background: @theme_card;
+  box-shadow: inset 0 0 0 1px @hairline;
+}
+
+.office-home.narrow .new-card {
+  padding: 12px;
+}
+
+.kind-tile {
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 10px;
+  background: alpha(currentColor, 0.16);
+}
+
+.new-card-title {
+  font-size: 1.077em;
+  font-weight: 600;
+}
+
+.new-card-sub {
+  color: @theme_text_tertiary;
+  font-size: 0.923em;
+}
+
+.chips flowboxchild {
+  padding: 0;
+  background: transparent;
+  outline: none;
+}
+
+window.office-window button.chip {
+  min-height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--nyx-radius-small);
+  background: alpha(currentColor, 0.12);
+  box-shadow: inset 0 0 0 1px alpha(currentColor, 0.24);
+  font-size: 0.923em;
+  font-weight: 500;
+}
+
+window.office-window button.chip > label {
+  color: @theme_text;
+}
+
+window.office-window button.chip:hover {
+  background: alpha(currentColor, 0.22);
+}
+
+window.office-window button.chip.chip-blank {
+  padding: 0 10px 0 7px;
+  background: currentColor;
+  box-shadow: none;
+}
+
+window.office-window button.chip.chip-blank:hover {
+  background: mix(currentColor, white, 0.12);
+}
+
+window.office-window button.chip.chip-blank label,
+window.office-window button.chip.chip-blank image {
+  color: white;
+}
+
+window.office-window button.chip.chip-blank image {
+  -gtk-icon-size: 13px;
+}
+
+.kind-filter button.segment {
+  min-height: 26px;
+  padding: 0 9px;
+}
+
+.recent-table {
+  padding: 4px 0;
+  border-radius: var(--nyx-radius-card);
+  background: @theme_card;
+  box-shadow: inset 0 0 0 1px @hairline;
+}
+
+.recent-item {
+  margin: 0 4px;
+  border-radius: var(--nyx-radius-small);
+}
+
+.recent-item + .recent-item {
+  box-shadow: 0 -1px 0 @hairline;
+}
+
+.recent-item:hover {
+  background: @row_hover;
+  box-shadow: none;
+}
+
+window.office-window button.recent-main {
+  min-height: 40px;
+  padding: 0 4px 0 10px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  font-weight: 400;
+}
+
+.recent-name {
+  font-weight: 500;
+}
+
+.recent-where {
+  color: @theme_text_tertiary;
+  font-size: 0.923em;
+}
+
+.recent-when {
+  color: @theme_dim_text;
+  font-size: 0.923em;
+}
+
+.format-badge {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: @field;
+  box-shadow: inset 0 0 0 1px @hairline;
+  color: @theme_text_tertiary;
+  font-size: 0.77em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+window.office-window button.recent-forget {
+  min-width: 24px;
+  min-height: 24px;
+  margin-right: 6px;
+  opacity: 0;
+}
+
+window.office-window .recent-item:hover button.recent-forget,
+window.office-window button.recent-forget:focus-visible {
+  opacity: 1;
+}
+
+.recent-empty {
+  padding: 12px 14px;
+  color: @theme_dim_text;
+}
+
+.open-line {
+  margin-top: 18px;
+}
+
+window.office-window button.open-file {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: @field;
+  box-shadow: inset 0 0 0 1px @hairline;
+  font-weight: 500;
+}
+
+.open-note {
+  color: @theme_text_tertiary;
+  font-size: 0.923em;
+}
+
+.sheet-readout {
+  color: @theme_text_tertiary;
+  font-size: 0.923em;
+  font-feature-settings: "tnum";
 }
 
 .template-grid flowboxchild {

@@ -164,7 +164,7 @@ fn display_format(format: &str) -> String {
 }
 
 pub fn read(bytes: &[u8], format: &str) -> Result<Container> {
-    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).context("not a Write, Sheets or Present file")?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).context("not an Office file")?;
     let manifest: Manifest =
         serde_json::from_slice(&read_entry(&mut archive, "manifest.json")?.context("the file has no manifest")?)
             .context("the manifest is damaged")?;

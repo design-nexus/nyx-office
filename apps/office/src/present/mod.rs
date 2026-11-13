@@ -15,7 +15,7 @@ mod show;
 mod sorter;
 mod templates;
 
-use crate::doc::{self, Find, SidebarGroup, Template};
+use crate::doc::{self, Find, SidebarGroup};
 use crate::print::Pages;
 use crate::{color, container, widgets, window};
 use anyhow::{Result, bail};
@@ -98,6 +98,8 @@ struct Controls {
 
 pub struct Present {
     me: RefCell<Weak<Present>>,
+    /// The tab it was built for (None outside the window, as in the checks).
+    tab: Option<crate::app::Tab>,
     root: gtk::Box,
     deck: RefCell<Deck>,
     media: RefCell<BTreeMap<String, Vec<u8>>>,
@@ -136,10 +138,6 @@ pub struct Present {
     thumbs_job: RefCell<Option<glib::SourceId>>,
 }
 
-thread_local! {
-    static PRESENT: RefCell<Option<Rc<Present>>> = const { RefCell::new(None) };
-}
-
 fn ctx() -> gtk::pango::Context {
     thread_local! {
         static CTX: gtk::pango::Context = crate::print::text_context();
@@ -175,6 +173,7 @@ impl Present {
         notes.set_right_margin(12);
         let p = Rc::new(Present {
             me: RefCell::new(Weak::new()),
+            tab: crate::app::tab(),
             root: widgets::vbox(0),
             deck: RefCell::new(Deck::default()),
             media: RefCell::new(BTreeMap::new()),
@@ -251,7 +250,6 @@ impl Present {
         p.connect_canvas();
         p.connect_text();
         p.refresh_thumbs();
-        PRESENT.with(|x| *x.borrow_mut() = Some(p.clone()));
         p
     }
 
@@ -851,7 +849,7 @@ impl Present {
         self.canvas.queue_draw();
         self.schedule_thumbs();
         self.sync();
-        doc::edited();
+        doc::edited_by(self.tab);
     }
 
     fn go_to(&self, i: usize) {
@@ -1712,7 +1710,7 @@ impl Present {
                 }
             });
             p.schedule_thumbs();
-            doc::edited();
+            doc::edited_by(p.tab);
         });
         let keys = gtk::EventControllerKey::new();
         let me = Rc::downgrade(self);
@@ -1740,7 +1738,7 @@ impl Present {
             if let Some(s) = p.deck.borrow_mut().slides.get_mut(i) {
                 s.notes = text;
             }
-            doc::edited();
+            doc::edited_by(p.tab);
         });
     }
 
@@ -1895,6 +1893,27 @@ impl Find for Present {
     }
 }
 
+pub use templates::TEMPLATES;
+
+/// A presentation's own shortcuts, for the F1 list.
+pub const SHORTCUTS: &[doc::Shortcut] = &[
+    (&["F5"], "Present from the start"),
+    (&["Shift", "F5"], "Present from this slide"),
+    (&["Number", "Enter"], "In the slideshow: go to that slide"),
+    (&["L"], "In the slideshow: laser pointer on or off"),
+    (&["Ctrl", "M"], "New slide"),
+    (&["PgDn"], "Next slide (PgUp: the one before)"),
+    (&["Alt", "↑"], "Move the slide up (Alt+↓: down)"),
+    (&["Shift", "Click"], "Select more objects"),
+    (&["Ctrl", "G"], "Group the selected objects (Ctrl+Shift+G: ungroup)"),
+    (&["Alt", "Drag"], "Move without snapping to guides"),
+    (&["Delete"], "Delete the selected objects"),
+    (&["Arrows"], "Nudge the selected object (Shift: further)"),
+    (&["Enter"], "Edit the selected text box, table or chart"),
+    (&["Esc"], "Stop editing, or let go of the object"),
+    (&["Ctrl", "B"], "Bold slide text (Ctrl+I: italic)"),
+];
+
 impl doc::Editor for Present {
     fn widget(&self) -> gtk::Widget {
         self.root.clone().upcast()
@@ -1917,10 +1936,6 @@ impl doc::Editor for Present {
         })
     }
 
-    fn templates(&self) -> &'static [Template] {
-        templates::TEMPLATES
-    }
-
     fn new_document(&self, template: Option<&str>) {
         self.load(template.and_then(templates::build).unwrap_or_default(), BTreeMap::new());
     }
@@ -1937,7 +1952,7 @@ impl doc::Editor for Present {
                 None if ext == "odp" => odp::read(&bytes)?,
                 None => pptx::read(&bytes)?,
             },
-            _ => bail!("Present opens .npresent, .pptx and .odp files"),
+            _ => bail!("Office opens presentations from .npresent, .pptx and .odp files"),
         };
         self.load(deck, media);
         Ok(())
@@ -1961,7 +1976,7 @@ impl doc::Editor for Present {
                 crate::cmd::atomic_write(path, bytes)?;
                 Ok(lost)
             }
-            _ => bail!("Present saves .npresent, .pptx and .odp files"),
+            _ => bail!("Office saves presentations as .npresent, .pptx and .odp files"),
         }
     }
 
@@ -2026,26 +2041,6 @@ impl doc::Editor for Present {
         if self.editing.get().is_none() {
             self.canvas.grab_focus();
         }
-    }
-
-    fn shortcuts(&self) -> &'static [doc::Shortcut] {
-        &[
-            (&["F5"], "Present from the start"),
-            (&["Shift", "F5"], "Present from this slide"),
-            (&["Number", "Enter"], "In the slideshow: go to that slide"),
-            (&["L"], "In the slideshow: laser pointer on or off"),
-            (&["Ctrl", "M"], "New slide"),
-            (&["PgDn"], "Next slide (PgUp: the one before)"),
-            (&["Alt", "↑"], "Move the slide up (Alt+↓: down)"),
-            (&["Shift", "Click"], "Select more objects"),
-            (&["Ctrl", "G"], "Group the selected objects (Ctrl+Shift+G: ungroup)"),
-            (&["Alt", "Drag"], "Move without snapping to guides"),
-            (&["Delete"], "Delete the selected objects"),
-            (&["Arrows"], "Nudge the selected object (Shift: further)"),
-            (&["Enter"], "Edit the selected text box, table or chart"),
-            (&["Esc"], "Stop editing, or let go of the object"),
-            (&["Ctrl", "B"], "Bold slide text (Ctrl+I: italic)"),
-        ]
     }
 
     fn key(&self, key: gdk::Key, mods: gdk::ModifierType) -> bool {

@@ -1,16 +1,38 @@
 # Office Suite — notes for working on this repo
 
-- One binary, `nyx-office`, runs as Write, Sheets or Present: `--app write`, or the
-  launcher scripts `nyx-write` / `nyx-sheets` / `nyx-present` (`packaging/`).
-  Each is its own GApplication (`io.github.design_nexus.nyx.Write` …) with its own window.
-  Config, data and state folders are shared: `nyx-office`. GTK4 (gtk4-rs 0.11), no
+- One binary, `nyx-office`, one GApplication (`io.github.design_nexus.nyx.Office`) and
+  one window for documents, spreadsheets and presentations, like a browser with tabs:
+  Home, then a tab per open file, any number of each kind, each in its kind's swatch
+  (`Kind::swatch`; `.section-swatch-<name>` colours what carries it, `currentColor`
+  tints tiles and chips). Every tab (`app::Tab`: an id that isn't reused, and its kind)
+  has its own editor, built inside it (`doc::build_editor` under `app::within`), so the
+  editor's `tab` field, header tools (`window::status_tool`) and Inspector
+  (`window::attach_chrome`) belong to it; editors report changes with
+  `doc::edited_by(self.tab)`, never for whatever tab is in front. Opening a file that's
+  open brings its tab forward (`doc::tab_of_path`); saving one tab over another tab's
+  file is refused. The one launcher entry is `io.github.design_nexus.nyx.Office.desktop`
+  (Home); the Write/Sheets/Present desktop files are `NoDisplay` and named Office, kept
+  for file types and Open With. User-facing text says Office; a file's kind is a
+  document, spreadsheet or presentation (`Kind::noun`/`title`/`plural`). `--app write`
+  and the scripts `nyx-write` / `nyx-sheets` / `nyx-present` (`packaging/`) open the
+  window on the front file of the kind (`doc::front_of`: the tab in front, or the one
+  last in front), or on Home. Write's control interface still answers on
+  `io.github.design_nexus.nyx.Write` (`main.rs` owns that name and serves `serve_on`
+  there) and works on the front document. `app::tab()` is the tab being worked on: the
+  front tab, or what `app::within` sets for work that finishes later (dialogs, autosave,
+  the fidelity check, Nyx Assistant); `app::kind()` is its kind. `doc` keeps one `Doc`
+  per tab (editor, file state, autosave timer, zoom). Config, data and state folders
+  are shared: `nyx-office`. GTK4 (gtk4-rs 0.11), no
   libadwaita. Nyx Design 2.0 (`nyx_theme::use_design_2`, see `STYLE.md`); the theme,
   widgets, settings card, window header, command bar and Inspector come from the
-  `nyx-*` crates. The window has one header (`chrome::app_header`): the app with the
-  file (a dot while unsaved) or Home as its subtitle, the sidebar toggle; search over
-  recent files in the middle on Home; with a document open, the editor's readout, its
-  view switches (`window::status_tool`), focus, full screen, zoom, Find and the
-  Inspector toggle, then Settings. No status bar. The command bar is the tool row under
+  `nyx-*` crates. The window has one header (`chrome::app_header`): Office, the sidebar
+  toggle and the front file's name (a dot while unsaved); on Home, Recent and Templates,
+  search over recent files in the middle and Open… and New ▾ at the right; with a file
+  in front, its readout, view switches (`window::status_tool`, per kind), focus, full
+  screen, zoom, Find, its Inspector toggle and Export PDF, then Settings. The sidebar:
+  Home, Recent, the files by kind, All templates, then the front file's own group (the
+  outline, the slides). No status bar. `app.show-page('home')` (an action) changes the
+  page without raising the window, for test copies. The command bar is the tool row under
   the header, without a title. Each editor's `build_toolbar` makes its controls and lays
   them out: what you add on a `nyx_ui::commandbar`, formatting in `nyx_ui::inspector`
   segments (contextual segments follow the visibility of their control groups).
@@ -18,18 +40,29 @@
   comment cards move into the Review segment while the Inspector is open. Every window colour is a `@theme_*` token. Page
   content (paper, ink, cells, slides, charts) keeps fixed document colours so the screen
   matches print; don't theme it.
-- **Shell** (`window.rs`, `home.rs`, `doc.rs`): the window has two pages, Home and the
-  document. `doc.rs` owns the open file (path, dirty, unsaved-changes guard, Save/Save
-  As by extension, PDF export, print, crash-recovery snapshots in
-  `~/.local/state/nyx-office/recovery/<app>/`). Each app implements `doc::Editor`
-  (widget, sidebar group, templates, open/save/snapshot, undo/redo, status, `Find`,
-  `Pages`, keys). Editors call `doc::edited()` on every change and
-  `doc::status_changed()` when the readout may change. The find bar is inserted after
+- **Shell** (`window.rs`, `home.rs`, `doc.rs`): the window's pages are Home (unsaved
+  work to bring back, New for each kind, recent files with a kind filter), Recent (all
+  of them), Templates, and one per tab holding its editor (named `tab-<id>`,
+  `Tab::page`); the tabs pick the page. `window::add_tab` gives a new tab its page,
+  find bar, header view buttons, Inspector toggle and sidebar group; `remove_tab` takes
+  them away (bringing the neighbour forward first). `doc.rs` owns each tab's file
+  (path, dirty, unsaved-changes guard, Save/Save As by extension, PDF export, print,
+  crash-recovery snapshots `<pid>-<time>-<tab>` in
+  `~/.local/state/nyx-office/recovery/<kind>/`); `doc::open` gives a file a new tab
+  (or brings forward the one it's in), `doc::new_of` starts one ("Untitled document 2"
+  while the first is open), `doc::close` closes a tab once its changes are dealt with,
+  `guard_all` asks about every changed tab when the window closes. Each kind implements
+  `doc::Editor` (widget, sidebar group, open/save/snapshot, undo/redo, status, `Find`,
+  `Pages`, keys); templates and shortcuts are per kind (`doc::templates`,
+  `doc::shortcuts`). Editors call `doc::edited_by(self.tab)` on every change and
+  `doc::status_changed()` when the readout may change. The file menu runs its
+  commands on the tab it was built in. The find bar is inserted after
   the editor widget's first child (its command bar). The bar drops labels, then folds
   tools into `⋯`, at narrow widths instead of wrapping. Focus mode (Ctrl+Shift+F,
   `window::toggle_focus`) hides the Inspector and the sidebar; the header stays.
-  Zoom (`doc::zoom`/`set_zoom`, kept in `~/.local/state/nyx-office/zoom-<app>`, not
-  the shared settings) reaches editors through `Editor::set_zoom`. Write and Sheets
+  Zoom is per tab (`doc::zoom`/`zoom_of`/`set_zoom`); a new tab starts at its kind's
+  last zoom, kept in `~/.local/state/nyx-office/zoom-<kind>`, not the shared
+  settings. It reaches editors through `Editor::set_zoom`. Write and Sheets
   wrap their view in `widgets::zoom_box` (a layout manager that allocates the child
   at 1/zoom with a scale transform, so GTK maps input back); Present multiplies its
   fitted slide scale and lets the canvas grow inside a scrolled window.
@@ -110,7 +143,8 @@
   (`src_row` maps to the sheet). The cell editor is an overlay `Entry` placed with
   margins. `xlsx.rs` reads with roxmltree (styles, merges, notes and conditional
   formats included) and writes with rust_xlsxwriter. Sheets are tabs under the grid;
-  Sheets has no sidebar group, so `window.rs` hides the sidebar on its document page.
+  Sheets has no sidebar group; its selection readout sits beside the sheet tabs
+  (`Editor::own_readout`) instead of in the header.
   Inserting and deleting rows and columns is `structure.rs` (`Workbook::restructure`:
   rewrites references on every sheet, `$` ones too, and moves merges, rules, charts,
   tables and the filter); the grid's right-click menu is `menu.rs`. Rows can't be
@@ -213,13 +247,21 @@
 - **Control** (`write/control.rs`, Write only): `nyx_core::control` on Write's bus name,
   for Nyx Assistant: `write.new_document`, `open`, `read` (Markdown via
   `Writer::document`), `insert_text` (paragraph styles, `control_insert`), `save`
-  (`doc::save_to`), `export_pdf`. Refuses to replace a document with unsaved changes.
+  (`doc::save_to`), `export_pdf`. They work on the front document
+  (`doc::front_of(Kind::Write)`); new and open give a tab of their own, so nothing is
+  replaced.
 - Checks: `cargo clippy --all-targets -- -D warnings`, `cargo test`. The editors'
   offscreen checks need a display and GTK on one thread, so they run in turn from
   `gtk_tests::editors_behave` (`main.rs`); add new GTK checks there, never as their own
-  `#[test]` (parallel GTK tests crash). `NXO_SAMPLE_DIR=/tmp/x cargo test -- --ignored
+  `#[test]` (parallel GTK tests crash). `doc::tabs_behave` opens several files of each
+  kind there and checks they stay apart (no saving or recent files: tests mustn't
+  write to the real data folders). `NXO_SAMPLE_DIR=/tmp/x cargo test -- --ignored
   write_office_samples` writes a .docx, .xlsx and .pptx to check in other software.
-  Layout checks: run a test copy under `NYX_OFFICE_APP_ID=io.github.design_nexus.nyx.WriteTest`
-  (or `SheetsTest`, `PresentTest`; `NXO_APP_ID` still works) on a virtual monitor of its
-  own, with `XDG_CONFIG_HOME`/`XDG_DATA_HOME`/`XDG_STATE_HOME`/`XDG_CACHE_HOME` at scratch
-  dirs, and capture it from outside (`grim`).
+  Layout checks: run a test copy under `NYX_OFFICE_APP_ID=io.github.design_nexus.nyx.OfficeTest`
+  (`NXO_APP_ID` still works) on a virtual monitor of its own, with
+  `XDG_CONFIG_HOME`/`XDG_DATA_HOME`/`XDG_STATE_HOME`/`XDG_CACHE_HOME` at scratch dirs, give
+  it files on its command line (each gets a tab), change pages with
+  `gdbus call … --method org.gtk.Actions.Activate show-page "[<'home'>]" {}` (also a
+  kind's id for its front file, or `tab-<n>`, tabs numbered from 1 as they open;
+  `close-tab "[<'tab-2'>]"` closes one as Ctrl+W would), and capture
+  it from outside (`grim`).

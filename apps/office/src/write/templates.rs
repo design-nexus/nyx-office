@@ -7,18 +7,21 @@ pub const TEMPLATES: &[Template] = &[
     Template {
         id: "letter",
         title: "Personal letter",
+        short: "Letter",
         summary: "Your address, the date and a friendly letter.",
         icon: "nxo-mail-symbolic",
     },
     Template {
         id: "recipe",
         title: "Recipe",
+        short: "Recipe",
         summary: "Ingredients, steps and notes for a dish.",
         icon: "nxo-chef-hat-symbolic",
     },
     Template {
         id: "journal",
         title: "Journal",
+        short: "Journal",
         summary: "Today, the highlights and what's next.",
         icon: "nxo-notebook-pen-symbolic",
     },

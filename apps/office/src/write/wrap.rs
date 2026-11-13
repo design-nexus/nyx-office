@@ -70,7 +70,7 @@ impl Writer {
                 w.apply_wraps();
             }
         });
-        doc::edited();
+        doc::edited_by(self.tab);
         self.schedule_pages();
         self.view.queue_draw();
     }

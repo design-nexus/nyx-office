@@ -1,0 +1,25 @@
+[Desktop Entry]
+Type=Application
+Name=Office
+GenericName=Office Suite
+Comment=Documents, spreadsheets and slides in one window, each file in a tab
+Exec=nyx-office %F
+Icon=io.github.design_nexus.nyx.Office
+Terminal=false
+Categories=Office;WordProcessor;Spreadsheet;Presentation;GTK;
+Keywords=office;document;letter;word;docx;write;spreadsheet;budget;excel;xlsx;csv;sheets;presentation;slides;powerpoint;pptx;present;
+StartupNotify=true
+StartupWMClass=io.github.design_nexus.nyx.Office
+Actions=new-document;new-spreadsheet;new-presentation;
+
+[Desktop Action new-document]
+Name=New document
+Exec=nyx-office --app write --new
+
+[Desktop Action new-spreadsheet]
+Name=New spreadsheet
+Exec=nyx-office --app sheets --new
+
+[Desktop Action new-presentation]
+Name=New presentation
+Exec=nyx-office --app present --new

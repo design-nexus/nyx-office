@@ -24,7 +24,7 @@ mod templates;
 mod view;
 mod wrap;
 
-use crate::doc::{self, Find, SidebarGroup, Template};
+use crate::doc::{self, Find, SidebarGroup};
 use crate::print::{Pages, Paper};
 use crate::{color, container, prefs, widgets, window};
 use anyhow::{Result, bail};
@@ -80,6 +80,8 @@ struct Controls {
 
 pub struct Writer {
     me: RefCell<Weak<Writer>>,
+    /// The tab it was built for (None outside the window, as in the checks).
+    tab: Option<crate::app::Tab>,
     root: gtk::Box,
     buffer: sourceview5::Buffer,
     view: view::PageView,
@@ -127,47 +129,64 @@ pub struct Writer {
 }
 
 thread_local! {
-    static WRITER: RefCell<Option<Rc<Writer>>> = const { RefCell::new(None) };
+    /// Every document editor, one per tab.
+    static WRITERS: RefCell<Vec<Weak<Writer>>> = const { RefCell::new(Vec::new()) };
 }
 
+fn writers() -> Vec<Rc<Writer>> {
+    WRITERS.with(|w| {
+        w.borrow_mut().retain(|w| w.strong_count() > 0);
+        w.borrow().iter().filter_map(Weak::upgrade).collect()
+    })
+}
+
+/// The editor of the tab being worked on, if it's a document.
 fn writer() -> Option<Rc<Writer>> {
-    WRITER.with(|w| w.borrow().clone())
+    let tab = crate::app::tab()?;
+    writers().into_iter().find(|w| w.tab == Some(tab))
 }
 
 pub(crate) fn fit_comment_panel() {
-    if let Some(w) = writer() {
+    for w in writers() {
         let panel = &w.comment_panel;
         panel.set_visible(panel.first_child().is_some() && (!window::narrow() || panel.has_css_class("in-inspector")));
     }
 }
 
 /// The document as Markdown text (the control interface's `write.read`).
-fn control_text() -> Option<String> {
+pub(crate) fn control_text() -> Option<String> {
     writer().map(|w| markdown::write(&w.document(), "").0)
 }
 
 /// Insert paragraphs at the cursor or the end, in a paragraph style (the control
 /// interface's `write.insert_text`). The buffer's own handlers record it like typing.
 fn control_insert(text: &str, style: model::Style, at_end: bool) -> Result<(), String> {
-    let w = writer().ok_or("Write isn't ready")?;
+    let w = writer().ok_or("no document is open")?;
     let tb = w.tb();
     let mut at = if at_end { tb.end_iter() } else { w.cursor_iter() };
     let first = at.line();
     tb.begin_user_action();
     tb.insert(&mut at, text);
     tb.end_user_action();
-    let last = at.line();
+    // The buffer's own insert handlers change the text too, which leaves `at` invalid:
+    // the inserted paragraphs are found by line instead.
+    let last = first + text.matches('\n').count() as i32;
     if style != model::Style::Normal {
         buffer::update_para(tb, first, last, |p| p.style = style);
         w.edited();
     }
-    tb.place_cursor(&at);
+    if let Some(mut end) = tb.iter_at_line(last) {
+        if !end.ends_line() {
+            end.forward_to_line_end();
+        }
+        tb.place_cursor(&end);
+    }
     Ok(())
 }
 
 /// Settings changed the spelling switch or language.
 pub fn spelling_changed() {
-    if let Some(w) = writer() {
+    for w in writers() {
         w.apply_spelling();
     }
 }
@@ -231,6 +250,7 @@ impl Writer {
 
         let w = Rc::new(Writer {
             me: RefCell::new(Weak::new()),
+            tab: crate::app::tab(),
             root: root.clone(),
             buffer,
             view,
@@ -277,7 +297,7 @@ impl Writer {
         w.connect_links();
         w.apply_page();
         w.attach_spelling();
-        WRITER.with(|x| *x.borrow_mut() = Some(w.clone()));
+        WRITERS.with(|x| x.borrow_mut().push(Rc::downgrade(&w)));
         w
     }
 
@@ -1017,7 +1037,7 @@ impl Writer {
 
     fn edited(&self) {
         self.renumber_notes();
-        doc::edited();
+        doc::edited_by(self.tab);
         self.view.queue_draw();
         self.schedule_pages();
         self.schedule_outline();
@@ -1174,7 +1194,7 @@ impl Writer {
 
     fn read_native(bytes: &[u8]) -> Result<(Document, BTreeMap<String, Vec<u8>>)> {
         if !container::is_zip(bytes) {
-            bail!("it isn't a Write file");
+            bail!("it isn't an Office document");
         }
         // Qt-era files hold document.html instead of content.json.
         let legacy = zip::ZipArchive::new(std::io::Cursor::new(bytes)).is_ok_and(|a| a.index_for_name("document.html").is_some());
@@ -1209,7 +1229,7 @@ impl Writer {
     fn fit_paper(&self) {
         let s = self.setup.borrow().clone();
         // Zoomed, the pages have the room of a window that much smaller or larger.
-        let avail = (self.scroll.hadjustment().page_size() / doc::zoom()) as i32 - 32;
+        let avail = (self.scroll.hadjustment().page_size() / doc::zoom_of(self.tab)) as i32 - 32;
         let paper_w = (s.paper().width * PX) as i32;
         let text_w = self.text_width_px();
         let (left, right) = ((s.margins[2] * PX) as i32, (s.margins[3] * PX) as i32);
@@ -1512,7 +1532,7 @@ impl Writer {
         if pic.wrap().is_some() {
             self.apply_wraps();
         }
-        doc::edited();
+        doc::edited_by(self.tab);
         self.schedule_pages();
     }
 
@@ -1875,6 +1895,29 @@ fn replace_ci(text: &str, query: &str, with: &str) -> String {
     out
 }
 
+pub use templates::TEMPLATES;
+
+/// A document's own shortcuts, for the F1 list.
+pub const SHORTCUTS: &[doc::Shortcut] = &[
+    (&["Ctrl", "B"], "Bold"),
+    (&["Ctrl", "I"], "Italic"),
+    (&["Ctrl", "U"], "Underline"),
+    (&["Ctrl", "1"], "Heading 1 (Ctrl+2, Ctrl+3 for smaller)"),
+    (&["Ctrl", "0"], "Normal text"),
+    (&["Ctrl", "Shift", "8"], "Bulleted list"),
+    (&["Ctrl", "Shift", "7"], "Numbered list"),
+    (&["Tab"], "In a list: indent (Shift+Tab: outdent)"),
+    (&["Ctrl", "Shift", "L"], "Align left (E center, R right, J justify)"),
+    (&["Ctrl", "Space"], "Clear character formatting"),
+    (&["Ctrl", "K"], "Add or edit a link (Ctrl+click opens one)"),
+    (&["Ctrl", "Shift", "="], "Superscript (Ctrl+=: subscript)"),
+    (&["Ctrl", "Enter"], "Page break"),
+    (&["Shift", "Enter"], "New line in the same paragraph"),
+    (&["Ctrl", "Alt", "F"], "Footnote (Ctrl+Alt+D: endnote)"),
+    (&["Ctrl", "Alt", "M"], "Comment on the selection"),
+    (&["Ctrl", "Shift", "T"], "Track changes on or off"),
+];
+
 impl doc::Editor for Writer {
     fn widget(&self) -> gtk::Widget {
         self.root.clone().upcast()
@@ -1882,10 +1925,6 @@ impl doc::Editor for Writer {
 
     fn sidebar(&self) -> Option<SidebarGroup> {
         Some(SidebarGroup { title: "Outline".into(), add: None, widget: self.outline.clone().upcast() })
-    }
-
-    fn templates(&self) -> &'static [Template] {
-        templates::TEMPLATES
     }
 
     fn new_document(&self, template: Option<&str>) {
@@ -1911,7 +1950,7 @@ impl doc::Editor for Writer {
             }
             "md" | "markdown" => markdown::read(&String::from_utf8_lossy(&std::fs::read(path)?), path.parent()),
             "txt" | "text" => (markdown::read_text(&String::from_utf8_lossy(&std::fs::read(path)?)), BTreeMap::new()),
-            _ => bail!("Write opens .nwrite, .docx, .odt, .md and .txt files"),
+            _ => bail!("Office opens documents from .nwrite, .docx, .odt, .md and .txt files"),
         };
         self.load_fresh(&d, &media);
         Ok(())
@@ -1957,7 +1996,7 @@ impl doc::Editor for Writer {
                 crate::cmd::atomic_write(path, markdown::write_text(&self.document()))?;
                 Ok(vec!["formatting, pictures and tables' layout".into()])
             }
-            _ => bail!("Write saves .nwrite, .docx, .odt, .md and .txt files"),
+            _ => bail!("Office saves documents as .nwrite, .docx, .odt, .md and .txt files"),
         }
     }
 
@@ -2032,28 +2071,6 @@ impl doc::Editor for Writer {
 
     fn focus(&self) {
         self.view.grab_focus();
-    }
-
-    fn shortcuts(&self) -> &'static [doc::Shortcut] {
-        &[
-            (&["Ctrl", "B"], "Bold"),
-            (&["Ctrl", "I"], "Italic"),
-            (&["Ctrl", "U"], "Underline"),
-            (&["Ctrl", "1"], "Heading 1 (Ctrl+2, Ctrl+3 for smaller)"),
-            (&["Ctrl", "0"], "Normal text"),
-            (&["Ctrl", "Shift", "8"], "Bulleted list"),
-            (&["Ctrl", "Shift", "7"], "Numbered list"),
-            (&["Tab"], "In a list: indent (Shift+Tab: outdent)"),
-            (&["Ctrl", "Shift", "L"], "Align left (E center, R right, J justify)"),
-            (&["Ctrl", "Space"], "Clear character formatting"),
-            (&["Ctrl", "K"], "Add or edit a link (Ctrl+click opens one)"),
-            (&["Ctrl", "Shift", "="], "Superscript (Ctrl+=: subscript)"),
-            (&["Ctrl", "Enter"], "Page break"),
-            (&["Shift", "Enter"], "New line in the same paragraph"),
-            (&["Ctrl", "Alt", "F"], "Footnote (Ctrl+Alt+D: endnote)"),
-            (&["Ctrl", "Alt", "M"], "Comment on the selection"),
-            (&["Ctrl", "Shift", "T"], "Track changes on or off"),
-        ]
     }
 
     fn key(&self, key: gdk::Key, mods: gdk::ModifierType) -> bool {

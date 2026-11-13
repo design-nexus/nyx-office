@@ -1,5 +1,5 @@
-//! Office: Write, Sheets and Present in one binary. Each runs as its own
-//! application (`nyx-write`, `nyx-sheets`, `nyx-present`).
+//! Office: documents, spreadsheets and presentations in one window, a tab for each
+//! open file. `nyx-write`, `nyx-sheets` and `nyx-present` open that window too.
 
 mod app;
 mod cmd;
@@ -27,14 +27,24 @@ mod write;
 use gtk::prelude::*;
 use gtk::{gio, glib};
 use std::path::PathBuf;
-use std::rc::Rc;
 
-const USAGE: &str = "Usage: nyx-office --app write|sheets|present [OPTIONS] [FILE]\n\
-       nyx-write [OPTIONS] [FILE]   (also nyx-sheets, nyx-present)\n\
+const USAGE: &str = "Usage: nyx-office [--app write|sheets|present] [OPTIONS] [FILE…]\n\
+       nyx-write [OPTIONS] [FILE…]   (also nyx-sheets, nyx-present)\n\
+\n\
+Every one opens the one Office window: on Home, on the front file of its kind,\n\
+or with each FILE in a tab of its own.\n\
 \n\
   FILE                  open this file\n\
-  --new [TEMPLATE]      start a blank file, or one from a template\n\
+  --new [TEMPLATE]      start a blank file of the kind, or one from its template\n\
   --export-pdf OUT      export FILE as a PDF to OUT and quit, without a window\n";
+
+/// nyx-write, or nyx-office --app write: the kind a launch asks for, if any.
+fn asked_kind(argv: &[String]) -> Option<app::Kind> {
+    let from_name =
+        argv.first().and_then(|a| std::path::Path::new(a).file_name()).and_then(|n| app::Kind::parse(&n.to_string_lossy()));
+    let from_flag = argv.iter().position(|a| a == "--app").and_then(|i| argv.get(i + 1)).and_then(|v| app::Kind::parse(v));
+    from_flag.or(from_name)
+}
 
 fn main() -> glib::ExitCode {
     nyx_core::app::init(nyx_core::app::App { slug: "nyx-office", name: "Office" });
@@ -44,15 +54,10 @@ fn main() -> glib::ExitCode {
         print!("{USAGE}");
         return glib::ExitCode::SUCCESS;
     }
-    // nyx-write, or nyx-office --app write.
-    let from_name =
-        args.first().and_then(|a| std::path::Path::new(a).file_name()).and_then(|n| app::Kind::parse(&n.to_string_lossy()));
-    let from_flag = args.iter().position(|a| a == "--app").and_then(|i| args.get(i + 1)).and_then(|v| app::Kind::parse(v));
-    let Some(kind) = from_flag.or(from_name) else {
+    if args.iter().position(|a| a == "--app").is_some_and(|i| args.get(i + 1).and_then(|v| app::Kind::parse(v)).is_none()) {
         eprint!("{USAGE}");
         return glib::ExitCode::FAILURE;
-    };
-    app::set(kind);
+    }
 
     // GTK's Vulkan renderer enumerates every GPU at startup, which wakes a
     // sleeping discrete GPU on hybrid laptops. GL renders only on the one in use.
@@ -62,19 +67,37 @@ fn main() -> glib::ExitCode {
     }
 
     // A different id gives a separate instance (a test copy beside the real one).
-    let id = std::env::var("NYX_OFFICE_APP_ID")
-        .or_else(|_| std::env::var("NXO_APP_ID"))
-        .unwrap_or_else(|_| kind.app_id().to_string());
+    let id = std::env::var("NYX_OFFICE_APP_ID").or_else(|_| std::env::var("NXO_APP_ID")).unwrap_or_else(|_| app::APP_ID.to_string());
     let application = gtk::Application::builder().application_id(id).flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE).build();
-    // Nyx Assistant works the open document through this (Write only, primary instance).
-    if kind == app::Kind::Write {
-        application.connect_startup(|a| nyx_core::control::serve(a, write::control::tools(), write::control::handle));
-    }
+    // Nyx Assistant works the open document through this (primary instance).
+    application.connect_startup(serve_write_control);
+    // `app.show-page('home')`: Home, Recent, Templates, or a kind's tab, without raising the window.
+    let show = gio::SimpleAction::new("show-page", Some(glib::VariantTy::STRING));
+    show.connect_activate(|_, page| {
+        if let Some(page) = page.and_then(|p| p.str()) {
+            window::navigate(page);
+        }
+    });
+    application.add_action(&show);
+    // `app.close-tab('tab-2')` (or '' for the tab in front): close it as Ctrl+W would.
+    let close = gio::SimpleAction::new("close-tab", Some(glib::VariantTy::STRING));
+    close.connect_activate(|_, page| {
+        let page = page.and_then(|p| p.str().map(str::to_string)).unwrap_or_default();
+        let tab = match app::Tab::id_of_page(&page) {
+            Some(id) => doc::tabs().into_iter().find(|t| t.id == id),
+            None => app::front(),
+        };
+        if let Some(t) = tab {
+            doc::close(t);
+        }
+    });
+    application.add_action(&close);
     application.connect_command_line(|application, cl| {
         let argv: Vec<String> = cl.arguments().iter().map(|a| a.to_string_lossy().to_string()).collect();
         let value = |flag: &str| {
             argv.iter().position(|a| a == flag).and_then(|i| argv.get(i + 1)).filter(|v| !v.starts_with("--")).cloned()
         };
+        let kind = asked_kind(&argv);
         let mut files: Vec<PathBuf> = Vec::new();
         let mut skip = true; // argv[0]
         for a in &argv {
@@ -97,21 +120,26 @@ fn main() -> glib::ExitCode {
                 files.push(p);
             }
         }
-        if doc::editor().is_none() {
-            doc::set_editor(make_editor());
-        }
 
         if let Some(out) = value("--export-pdf") {
             return export_headless(files.first(), cl.create_file_for_arg(&out).path());
         }
 
         window::present(application);
-        if let Some(path) = files.into_iter().next() {
-            doc::open(path);
-        } else if argv.iter().any(|a| a == "--new") {
-            let template =
-                value("--new").and_then(|t| doc::editor().and_then(|e| e.templates().iter().find(|x| x.id == t).map(|x| x.id)));
-            doc::new_document(template);
+        // Each file in a tab of its own (one already open comes to the front).
+        let mut opened = false;
+        for path in files {
+            opened |= doc::open(path).is_some();
+        }
+        if !opened {
+            let kind = kind.unwrap_or(app::Kind::Write);
+            if argv.iter().any(|a| a == "--new") {
+                let template = value("--new").and_then(|t| doc::templates(kind).iter().find(|x| x.id == t).map(|x| x.id));
+                doc::new_of(kind, template);
+            } else if asked_kind(&argv).is_some() {
+                // The front file of that kind, or Home to start one.
+                window::show_kind(kind);
+            }
         }
         glib::ExitCode::SUCCESS
     });
@@ -119,11 +147,40 @@ fn main() -> glib::ExitCode {
     application.run()
 }
 
-fn make_editor() -> Rc<dyn doc::Editor> {
-    match app::kind() {
-        app::Kind::Write => write::Writer::create(),
-        app::Kind::Sheets => sheets::Sheets::create(),
-        app::Kind::Present => present::Present::create(),
+/// Write's control interface (`nyx_core::control`) for Nyx Assistant, where it was
+/// before the kinds shared a window: Write's bus name and object path. It works on
+/// the front document (`write::control`). A test copy (its own app id) answers on its
+/// own name instead.
+fn serve_write_control(application: &gtk::Application) {
+    let handle = |name: &str, args| write::control::handle(name, args);
+    if application.application_id().as_deref() != Some(app::APP_ID) {
+        nyx_core::control::serve(application, write::control::tools(), handle);
+        return;
+    }
+    let Some(connection) = application.dbus_connection() else { return };
+    let name = app::Kind::Write.app_id();
+    let path = format!("/{}", name.replace('.', "/"));
+    // Owned for the app's life: the id isn't kept to give it back.
+    let _ = gio::bus_own_name_on_connection(&connection, name, gio::BusNameOwnerFlags::NONE, |_, _| {}, |_, name| {
+        eprintln!("nyx-office: {name} is taken (Write running on its own?); Nyx Assistant won't reach this window");
+    });
+    let own_dir = std::env::current_exe().ok().and_then(|e| e.parent().map(std::path::Path::to_path_buf));
+    let served = nyx_core::control::serve_on(
+        &connection,
+        &path,
+        name,
+        write::control::tools(),
+        own_dir,
+        Some(application.clone().upcast()),
+        move |request, answer| {
+            answer(
+                handle(&request.action, request.arguments)
+                    .map_err(|e| nyx_actions::Error::new(nyx_actions::ErrorKind::Failed, e)),
+            )
+        },
+    );
+    if let Err(e) = served {
+        eprintln!("control interface: {e}");
     }
 }
 
@@ -134,8 +191,15 @@ fn export_headless(file: Option<&PathBuf>, out: Option<PathBuf>) -> glib::ExitCo
         return glib::ExitCode::FAILURE;
     };
     theme::install();
-    let Some(ed) = doc::editor() else { return glib::ExitCode::FAILURE };
-    let result = ed.open(file).and_then(|_| print::export_pdf(ed.pages().as_ref(), &out));
+    let Some(kind) = app::Kind::for_path(file) else {
+        eprintln!("nyx-office: Office doesn't open {}", file.display());
+        return glib::ExitCode::FAILURE;
+    };
+    let tab = app::new_tab(kind);
+    let result = app::within(tab, || {
+        let ed = doc::build_editor(kind);
+        ed.open(file).and_then(|_| print::export_pdf(ed.pages().as_ref(), &out))
+    });
     match result {
         Ok(()) => {
             println!("{}", out.display());
@@ -161,6 +225,7 @@ mod gtk_tests {
         crate::write::tests::editor_behaves();
         crate::sheets::tests::editor_behaves();
         crate::present::tests::editor_behaves();
+        crate::doc::tabs_behave();
     }
 }
 
