@@ -1,9 +1,9 @@
 # Office Suite
 
-Three home office apps for [Omarchy](https://omarchy.org): **Write** for
+Three home office apps for NyxOS and [Omarchy](https://omarchy.org): **Write** for
 documents, **Sheets** for spreadsheets and **Present** for slides. They
 open and save Word, Excel and PowerPoint files and their OpenDocument counterparts,
-export PDF and print. The window takes its colors from your Omarchy theme and fits a
+export PDF and print. The window takes its colors from the desktop theme and fits a
 half-screen tile; the page itself keeps its own colors, so what you see is what prints.
 
 ## What they do
@@ -183,6 +183,8 @@ All three:
 Files made by the first release of Office open as before.
 
 ## Install
+
+On NyxOS, choose Office in Welcome when you set up, or install it later from the Store or with `nyx install nyx-office`. On Omarchy:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/design-nexus/nyx-office/main/install.sh | bash -s -- office
